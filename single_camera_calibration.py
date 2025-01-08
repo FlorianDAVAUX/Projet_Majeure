@@ -84,7 +84,7 @@ def initialize_cameras(config):
     print('opening camera ', config["id_cam1"])
     cap1 = cv.VideoCapture(config["id_cam1"])
 
-    resolution = config["resolution"]
+    resolution = config["resolution"]    
     cap1.set(cv.CAP_PROP_FRAME_WIDTH, resolution[0])
     cap1.set(cv.CAP_PROP_FRAME_HEIGHT, resolution[1])
 
@@ -109,7 +109,7 @@ def initialize_calibration_points(nb_colonnes, nb_lignes, taille_tag, espacement
             coin_bd = np.array([x + taille_tag, y + taille_tag, z])
             coin_bg = np.array([x, y + taille_tag, z])
             
-            positions[id_tag] = np.array([coin_hg, coin_hd, coin_bd, coin_bg], dtype=np.float32)
+            positions[id_tag] = np.array([coin_hd, coin_bd, coin_bg,coin_hg], dtype=np.float32)
             id_tag += 1
 
     return positions
@@ -131,27 +131,27 @@ def detect_aruco_tags(frame, config):
     )
     return corners, ids
 
-def calibrate_camera(frame, config, calibration_points, corners, ids):
+def calibrate_camera(config, calibration_points, corners, ids):
     """
     Calibre une image de la caméra à l'aide des positions dans le repère monde
     des coins des tags ArUco.
     """
+    ret, mtx, dist, rvec, tvec = None, None, None, None, None
+    object_points = []
+    image_points = []
+    for i, marker_id in enumerate(ids.flatten()):
+        if marker_id in calibration_points:
+            for j in range(4):
+                object_points.append(calibration_points[marker_id][j])
+                image_points.append(corners[i][0][j])    
+    object_points = np.array(object_points, dtype=np.float32).reshape(-1, 3)
+    image_points = np.array(image_points, dtype=np.float32).reshape(-1, 2)
+
     if len(corners) > 0:
+        ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera([object_points], [image_points], config["resolution"], config["m_cam"], None, flags=0)
+        rvec, tvec = rvecs[0], tvecs[0]
 
-        object_points = []
-        image_points = []
-        for i, marker_id in enumerate(ids.flatten()):
-            if marker_id in calibration_points:
-                for j in range(4):
-                    object_points.append(calibration_points[marker_id][j])
-                    image_points.append(corners[i][0][j])
-        
-        object_points = np.array(object_points, dtype=np.float32).reshape(-1, 3)
-        image_points = np.array(image_points, dtype=np.float32).reshape(-1, 2)
-
-        ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera([object_points], [image_points], (config["resolution"][0],config["resolution"][1]), config["m_cam"], None, flags=cv.CALIB_USE_INTRINSIC_GUESS)
-        return ret, mtx, dist, rvecs, tvecs
-    return None, None, None, None, None
+    return ret, mtx, dist, rvec, tvec
 
 ################################################################################
 # Main Loop
@@ -173,11 +173,12 @@ def main_loop(cap, config, calibration_points):
                 cv.polylines(frame, [corners.astype(np.int32)], True, (0, 255, 255), 4, cv.LINE_AA)
                 corners = corners.reshape(4, 2)
                 corners = corners.astype(int)
-                center = corners.mean(axis=0).astype(int)
+                tag_center = corners.mean(axis=0).astype(int)
+                tag_center[0] -= 20
                 cv.putText(
                     frame,
                     f"id: {ids[0]}",
-                    tuple(center),
+                    tuple(tag_center),
                     cv.FONT_HERSHEY_PLAIN,
                     1.3,
                     (200, 100, 0),
@@ -186,19 +187,16 @@ def main_loop(cap, config, calibration_points):
                 )
 
             # Calibrage de la caméra
-            ret, mtx, dist, rvecs, tvecs = calibrate_camera(frame, config, calibration_points, marker_corners, marker_IDs)
-
-            print(rvecs, tvecs)
+            ret, mtx, dist, rvec, tvec = calibrate_camera(config, calibration_points, marker_corners, marker_IDs)
 
             if ret:
                 # Affichage des points de calibration sur l'image en les projetant
-                for ids in marker_IDs:
-                    projected, _ = cv.projectPoints(calibration_points[ids[0]], rvecs[0], tvecs[0], mtx, dist)
-                    for point in projected:
-                        cv.circle(frame, tuple(point.ravel().astype(int)), 5, (0, 0, 255), -1)
+                for id in marker_IDs.flatten():
+                    if id in calibration_points:
+                        projected, _ = cv.projectPoints(calibration_points[id], rvec, tvec, mtx, dist)
+                        for point in projected:
+                            cv.circle(frame, tuple(point.ravel().astype(int)), 5, (0, 0, 255), -1)
             
-
-
             # Affichage du flux vidéo
             cv.imshow("frame", frame)
         
