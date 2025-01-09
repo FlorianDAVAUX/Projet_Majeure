@@ -5812,7 +5812,8 @@ MonoBehaviour:
   winText: {fileID: 1137512428}
   loseText: {fileID: 1787076713}
   chronoText: {fileID: 253303945}
-  chrono: 120
+  chrono: 3
+  ball: {fileID: 2019139044}
 --- !u!136 &551955858
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -6424,6 +6425,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d52ab9c9bdddd47c2b675bdac48293bb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  plane: {fileID: 163407332}
 --- !u!114 &1900823757
 MonoBehaviour:
   m_ObjectHideFlags: 0
