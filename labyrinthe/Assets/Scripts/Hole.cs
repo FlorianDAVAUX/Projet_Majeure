@@ -8,15 +8,13 @@ public class Hole : MonoBehaviour
     public TextMeshProUGUI loseText;   // Texte pour afficher le message de défaite
     public TextMeshProUGUI chronoText; // Texte pour afficher le chronomètre
     public float chrono;  // Durée du chronomètre
+    public GameObject ball;   // Référence à la balle
     private float fallSpeed = 6f;  // Vitesse à laquelle la balle descend dans le trou
     private bool isGameOver = false;   // Variable pour savoir si la partie est terminée
-    private GameObject ball;   // Référence à la balle
     private float holesize = 0.5f; // Taille du trou
 
     void Start()
     {
-        // Rigidbody ballRigidbody = ball.GetComponent<Rigidbody>(); // Récupérer le Rigidbody de la balle
-        // ball = GameObject.FindGameObjectWithTag("Ball"); // Récupérer la balle
         winText.gameObject.SetActive(false); // Cacher le texte de victoire au début
         loseText.gameObject.SetActive(false); // Cacher le texte de défaite au début
     }
@@ -35,7 +33,7 @@ public class Hole : MonoBehaviour
         {
             chrono = 0;
             loseText.gameObject.SetActive(true);
-            ball.gameObject.SetActive(false);
+            ball.SetActive(false);
             isGameOver = true;
         }
 
