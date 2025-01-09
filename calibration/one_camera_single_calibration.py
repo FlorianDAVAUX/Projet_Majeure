@@ -50,13 +50,6 @@ def configure_system(cameras):
 
         # Webcam
         "id_cam1": cameras[0],
-
-        # Serveur
-        "UDP_IP": "127.0.0.1",
-        "UDP_PORT": 5065,
-
-        # Critères pour la recherche des points
-        "criteria": (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001),
     }
 
     # Calcul du centre et de la matrice intrinsèque de la caméra
@@ -136,7 +129,7 @@ def calibrate_camera(config, calibration_points, corners, ids):
     Calibre une image de la caméra à l'aide des positions dans le repère monde
     des coins des tags ArUco.
     """
-    ret, mtx, dist, rvec, tvec = None, None, None, None, None
+    ret, rvec, tvec = None, None, None
     object_points = []
     image_points = []
     for i, marker_id in enumerate(ids.flatten()):
@@ -148,10 +141,9 @@ def calibrate_camera(config, calibration_points, corners, ids):
     image_points = np.array(image_points, dtype=np.float32).reshape(-1, 2)
 
     if len(corners) > 0:
-        ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera([object_points], [image_points], config["resolution"], config["m_cam"], None, flags=0)
-        rvec, tvec = rvecs[0], tvecs[0]
+        ret, rvec, tvec = cv.solvePnP(object_points, image_points, config["m_cam"], config["distortion"])
 
-    return ret, mtx, dist, rvec, tvec
+    return ret, rvec, tvec
 
 ################################################################################
 # Main Loop
@@ -187,13 +179,13 @@ def main_loop(cap, config, calibration_points):
                 )
 
             # Calibrage de la caméra
-            ret, mtx, dist, rvec, tvec = calibrate_camera(config, calibration_points, marker_corners, marker_IDs)
+            ret, rvec, tvec = calibrate_camera(config, calibration_points, marker_corners, marker_IDs)
 
             if ret:
                 # Affichage des points de calibration sur l'image en les projetant
                 for id in marker_IDs.flatten():
                     if id in calibration_points:
-                        projected, _ = cv.projectPoints(calibration_points[id], rvec, tvec, mtx, dist)
+                        projected, _ = cv.projectPoints(calibration_points[id], rvec, tvec, config["m_cam"], config["distortion"])
                         for point in projected:
                             cv.circle(frame, tuple(point.ravel().astype(int)), 5, (0, 0, 255), -1)
             
