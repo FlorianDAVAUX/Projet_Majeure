@@ -39,8 +39,8 @@ def configure_system(cameras):
         # Paramètres Aruco tags
         "ARUCO_DICT": aruco.getPredefinedDictionary(aruco.DICT_4X4_50),
         "ARUCO_PARAMETERS": aruco.DetectorParameters(),
-        "ARUCO_SIZE_mm": 41,
-        "ARUCO_SPACING_mm": 14,
+        "ARUCO_SIZE_mm": 57,
+        "ARUCO_SPACING_mm": 13,
 
         # Paramètres intrinsèques webcam
         "sensor_mm": np.array([3.58, 2.685]),
@@ -50,6 +50,12 @@ def configure_system(cameras):
 
         # Webcam
         "id_cam1": cameras[0],
+
+        # AruCo ids pour les points de calibration du monde
+        "world_calibration_ids": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+
+        # AruCo ids pour les points de calibration de l'objet
+        "object_calibration_ids": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
     }
 
     # Calcul du centre et de la matrice intrinsèque de la caméra
@@ -102,7 +108,7 @@ def initialize_calibration_points(nb_colonnes, nb_lignes, taille_tag, espacement
             coin_bd = np.array([x + taille_tag, y + taille_tag, z])
             coin_bg = np.array([x, y + taille_tag, z])
             
-            positions[id_tag] = np.array([coin_hg,coin_hd, coin_bd, coin_bg], dtype=np.float32)
+            positions[id_tag] = np.array([coin_hd, coin_bd, coin_bg,coin_hg], dtype=np.float32)
             id_tag += 1
 
     return positions
@@ -145,11 +151,18 @@ def calibrate_camera(config, calibration_points, corners, ids):
 
     return ret, rvec, tvec
 
+def object_points_to_world_points(object_points, rvec_object, rvec_world, tvec_object, tvec_world):
+    """
+    Convertit les points de l'objet en points du monde.
+    """
+    world_points = []
+    return world_points
+
 ################################################################################
 # Main Loop
 ################################################################################
 
-def main_loop(cap, config, calibration_points):
+def main_loop(cap, config, world_calibration_points, object_calibration_points):
     """
     Boucle principale pour capturer les images et envoyer les paramètres via UDP.
     """
@@ -162,7 +175,11 @@ def main_loop(cap, config, calibration_points):
 
             # Affichage des tags
             for ids, corners in zip(marker_IDs, marker_corners):
-                cv.polylines(frame, [corners.astype(np.int32)], True, (0, 255, 255), 4, cv.LINE_AA)
+                if ids[0] in config["world_calibration_ids"]:
+                    line_color = (255, 0, 0)
+                elif ids[0] in config["object_calibration_ids"]:
+                    line_color = (0, 0, 255)
+                cv.polylines(frame, [corners.astype(np.int32)], True, line_color, 4, cv.LINE_AA)
                 corners = corners.reshape(4, 2)
                 corners = corners.astype(int)
                 tag_center = corners.mean(axis=0).astype(int)
@@ -179,16 +196,28 @@ def main_loop(cap, config, calibration_points):
                 )
 
             # Calibrage de la caméra
-            ret, rvec, tvec = calibrate_camera(config, calibration_points, marker_corners, marker_IDs)
+            ret_world, rvec_world, tvec_world = calibrate_camera(config, world_calibration_points, marker_corners, marker_IDs)
+            ret_object, rvec_object, tvec_object = calibrate_camera(config, object_calibration_points, marker_corners, marker_IDs)
 
-            if ret:
-                # Affichage des points de calibration sur l'image en les projetant
+            if ret_world and ret_object:
+                # Affichage des points de calibrage sur l'image en les projetant
                 for id in marker_IDs.flatten():
-                    if id in calibration_points:
-                        projected, _ = cv.projectPoints(calibration_points[id], rvec, tvec, config["m_cam"], config["distortion"])
-                        for point in projected:
+
+                    # Affichage des points de calibrage du monde
+                    if id in config["world_calibration_ids"]:
+                        projected_world, _ = cv.projectPoints(world_calibration_points[id], rvec_world, tvec_world, config["m_cam"], config["distortion"])
+                        for point in projected_world:
                             cv.circle(frame, tuple(point.ravel().astype(int)), 5, (0, 0, 255), -1)
-            
+
+                    # Affichage des points de calibrage de l'objet
+                    elif id in config["object_calibration_ids"]:
+                        projected_object, _ = cv.projectPoints(object_calibration_points[id], rvec_object, tvec_object, config["m_cam"], config["distortion"]))
+                        for point in projected_object:
+                            cv.circle(frame, tuple(point.ravel().astype(int)), 5, (255, 0, 0), -1)
+
+                    else:
+                        continue
+
             # Affichage du flux vidéo
             cv.imshow("frame", frame)
         
@@ -214,12 +243,13 @@ if __name__ == "__main__":
     # Initialisation des caméras
     cap = initialize_cameras(config)
     # Initialisation des points de calibration
-    calibration_points = initialize_calibration_points(5, 7, config["ARUCO_SIZE_mm"], config["ARUCO_SPACING_mm"])
+    world_calibration_points = initialize_calibration_points(5, 4, 57, 13)
+    object_calibration_points = initialize_calibration_points(5, 4, 57, 13)
     print("Configuration terminée.")
 
     # Boucle principale
     try:
-        main_loop(cap, config, calibration_points)
+        main_loop(cap, config, world_calibration_points, object_calibration_points)
     finally:
         cap.release()
         cv.destroyAllWindows()

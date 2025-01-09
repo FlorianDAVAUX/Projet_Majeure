@@ -41,8 +41,8 @@ def configure_system(cameras):
         # Paramètres Aruco tags
         "ARUCO_DICT": aruco.getPredefinedDictionary(aruco.DICT_4X4_50),
         "ARUCO_PARAMETERS": aruco.DetectorParameters(),
-        "ARUCO_SIZE_mm": 57,
-        "ARUCO_SPACING_mm": 13,
+        "ARUCO_SIZE_mm": 41,
+        "ARUCO_SPACING_mm": 14,
 
         # Paramètres intrinsèques webcam
         "sensor_mm": np.array([3.58, 2.685]),
