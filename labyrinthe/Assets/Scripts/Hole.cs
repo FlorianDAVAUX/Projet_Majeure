@@ -17,6 +17,11 @@ public class Hole : MonoBehaviour
     {
         winText.gameObject.SetActive(false); // Cacher le texte de victoire au début
         loseText.gameObject.SetActive(false); // Cacher le texte de défaite au début
+        
+        // On récupère le diamètre du trou
+        float holeScaleX = transform.localScale.x;
+        // Set the position of the hole to (5, -5)
+        transform.position = new Vector3(5-holeScaleX*8, transform.position.y, -5+holeScaleX*8);
     }
 
     void Update()

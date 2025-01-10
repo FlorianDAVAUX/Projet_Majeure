@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 
 public class WallGenerator : MonoBehaviour
 {
@@ -8,16 +9,29 @@ public class WallGenerator : MonoBehaviour
     public GameObject parentPlane;
     public GameObject roof;
     public GameObject particlePrefab; 
+    public GameObject ball;
     private float duration = 3f; 
+    private List<GameObject> walls = new List<GameObject>();
 
     void Start()
     {
         // On rend le mur de base (prefab) invisible
         Renderer prefabRenderer = wallPrefab.GetComponent<Renderer>();
+        Renderer particleRenderer = particlePrefab.GetComponent<Renderer>();
+        particleRenderer.enabled = false;
         prefabRenderer.enabled = false;
 
         roof.SetActive(false);
     }
+
+    public void GenerateWallsFromCoordinates(Vector3[] coordinates, string[] colors)
+    {
+        for (int i = 0; i < coordinates.Length; i += 2)
+        {
+            GenerateWall(coordinates[i], coordinates[i + 1], colors[i/2]);
+        }
+    }
+
 
     // Fonction pour générer un mur entre deux points
     public void GenerateWall(Vector3 start, Vector3 end, string color)
@@ -39,6 +53,9 @@ public class WallGenerator : MonoBehaviour
 
         // Instanciation du mur
         GameObject wall = Instantiate(wallPrefab);
+
+        walls.Add(wall);
+
 
         // Positionner le mur à la position calculée
         wall.transform.position = position;
@@ -68,25 +85,91 @@ public class WallGenerator : MonoBehaviour
         {
             StartCoroutine(RiseAndFall(wall, 1f, duration));
         }
+
+        ComputeWallDistances();
     }
 
-    private IEnumerator InstantiateParticlesWithDelay(Vector3 position, Quaternion rotation, Transform parent)
+    public void ComputeWallDistances()
     {
-        yield return new WaitForSeconds(0.6f);
+        float minDistance = float.MaxValue;
 
-        GameObject particles = Instantiate(particlePrefab, position, rotation);
+        // On compare les murs deux à deux
+        for (int i = 0; i < walls.Count; i++)
+        {
+            for (int j = i + 1; j < walls.Count; j++)
+            {
+                //On récupère la position des murs
+                Vector3 pos1 = walls[i].transform.position;
+                Vector3 pos2 = walls[j].transform.position;
 
-        particles.transform.localScale = new Vector3(0.7f, 0.7f, 0.7f);
+                // Calcul de la distance entre les deux murs
+                float distance = Vector3.Distance(pos1, pos2);
 
-        // Rotation de 90° autour de l'axe x
-        particles.transform.Rotate(-90, 0, 0);
-
-        // Fixer les particules comme enfant du plan pour qu'elles ne suivent pas le mur
-        particles.transform.parent = parent;
-
-        // Ajuster la rotation et l'échelle des particules
-        particles.transform.localScale = new Vector3(1f, 1f, 1f);
+                // On met à jour la distance minimale
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                }
+            }
+        }
+        Debug.Log("Distance :" + minDistance);
+        // Resize avec la distance minimale
+        ball.transform.localScale = new Vector3(minDistance*0.5f, minDistance*0.5f, minDistance*0.5f);
+        // ball.transform.position = new Vector3(5-ball.transform.localScale.x*8, ball.transform.localScale.y, -5+ball.transform.localScale.x*8);
     }
+    
+
+    /////////////////////////////////////////// ANIMATIONS MURS & PLAFOND ///////////////////////////////////////////
+
+    private IEnumerator WaitAndShowRoof(float waitTime)
+    {
+        yield return new WaitForSeconds(waitTime);
+        roof.SetActive(true);
+    }
+
+    private IEnumerator AnimateWall(GameObject wall, Vector3 targetPosition, float duration)
+    {
+        // Convertir les positions en espace local
+        Vector3 localTargetPosition = parentPlane.transform.InverseTransformPoint(targetPosition);
+        Vector3 localStartPosition = localTargetPosition + new Vector3(0, -10f, 0);
+
+        float elapsedTime = 0;
+        float shakeMagnitude = 0.006f; // Magnitude du tremblement
+
+        while (elapsedTime < duration)
+        {
+            Vector3 randomShake = new Vector3(
+                Random.Range(-shakeMagnitude, shakeMagnitude),
+                Random.Range(-shakeMagnitude, shakeMagnitude),
+                Random.Range(-shakeMagnitude, shakeMagnitude)
+            ); // Calcul d'un tremblement aléatoire
+
+            // Interpolation linéaire entre la position de départ et la position cible
+            wall.transform.localPosition = Vector3.Lerp(localStartPosition, localTargetPosition, elapsedTime / duration) + randomShake;
+            elapsedTime += Time.deltaTime;
+            yield return null; // Attendre la prochaine frame
+        }
+
+        wall.transform.localPosition = localTargetPosition;
+    }
+
+    private IEnumerator RiseAndFall(GameObject wall, float speed, float waitTime)
+    {
+        yield return new WaitForSeconds(waitTime);
+        Vector3 originalLocalPosition = wall.transform.localPosition;
+        Vector3 targetLocalPosition = new Vector3(originalLocalPosition.x, originalLocalPosition.y - 10f, originalLocalPosition.z);
+        float elapsedTime = 0;
+
+        while (true)
+        {
+            // Interpolation linéaire pour descendre
+            wall.transform.localPosition = Vector3.Lerp(originalLocalPosition, targetLocalPosition, Mathf.PingPong(elapsedTime * speed, 1));
+            elapsedTime += Time.deltaTime;
+            yield return null; // Attendre la prochaine frame
+        }
+    }
+    
+    /////////////////////////////////////////// PARTICULES ///////////////////////////////////////////
 
     private void GenerateParticles(Vector3 start, Vector3 end, float length, Quaternion direction)
     {
@@ -118,59 +201,22 @@ public class WallGenerator : MonoBehaviour
         }
     }
 
-    public void GenerateWallsFromCoordinates(Vector3[] coordinates, string[] colors)
+    private IEnumerator InstantiateParticlesWithDelay(Vector3 position, Quaternion rotation, Transform parent)
     {
-        for (int i = 0; i < coordinates.Length; i += 2)
-        {
-            GenerateWall(coordinates[i], coordinates[i + 1], colors[i/2]);
-        }
+        yield return new WaitForSeconds(0.6f);
+
+        GameObject particles = Instantiate(particlePrefab, position, rotation);
+
+        particles.transform.localScale = new Vector3(0.7f, 0.7f, 0.7f);
+
+        // Rotation de 90° autour de l'axe x
+        particles.transform.Rotate(-90, 0, 0);
+
+        // Fixer les particules comme enfant du plan pour qu'elles ne suivent pas le mur
+        particles.transform.parent = parent;
+
+        // Ajuster la rotation et l'échelle des particules
+        particles.transform.localScale = new Vector3(1f, 1f, 1f);
     }
 
-    private IEnumerator AnimateWall(GameObject wall, Vector3 targetPosition, float duration)
-    {
-        // Convertir les positions en espace local
-        Vector3 localTargetPosition = parentPlane.transform.InverseTransformPoint(targetPosition);
-        Vector3 localStartPosition = localTargetPosition + new Vector3(0, -10f, 0);
-
-        float elapsedTime = 0;
-        float shakeMagnitude = 0.006f; // Magnitude du tremblement
-
-        while (elapsedTime < duration)
-        {
-            Vector3 randomShake = new Vector3(
-                Random.Range(-shakeMagnitude, shakeMagnitude),
-                Random.Range(-shakeMagnitude, shakeMagnitude),
-                Random.Range(-shakeMagnitude, shakeMagnitude)
-            ); // Calcul d'un tremblement aléatoire
-
-            // Interpolation linéaire entre la position de départ et la position cible
-            wall.transform.localPosition = Vector3.Lerp(localStartPosition, localTargetPosition, elapsedTime / duration) + randomShake;
-            elapsedTime += Time.deltaTime;
-            yield return null; // Attendre la prochaine frame
-        }
-
-        wall.transform.localPosition = localTargetPosition;
-    }
-
-    private IEnumerator WaitAndShowRoof(float waitTime)
-    {
-        yield return new WaitForSeconds(waitTime);
-        roof.SetActive(true);
-    }
-
-    private IEnumerator RiseAndFall(GameObject wall, float speed, float waitTime)
-    {
-        yield return new WaitForSeconds(waitTime);
-        Vector3 originalLocalPosition = wall.transform.localPosition;
-        Vector3 targetLocalPosition = new Vector3(originalLocalPosition.x, originalLocalPosition.y - 10f, originalLocalPosition.z);
-        float elapsedTime = 0;
-
-        while (true)
-        {
-            // Interpolation linéaire pour descendre
-            wall.transform.localPosition = Vector3.Lerp(originalLocalPosition, targetLocalPosition, Mathf.PingPong(elapsedTime * speed, 1));
-            elapsedTime += Time.deltaTime;
-            yield return null; // Attendre la prochaine frame
-        }
-    }
 }

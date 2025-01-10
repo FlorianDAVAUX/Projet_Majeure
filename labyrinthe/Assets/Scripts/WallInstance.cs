@@ -8,14 +8,14 @@ public class WallInstance : MonoBehaviour
     void Start()
     {
         // Recupérer le scale du plan
-        float scale = plane.transform.localScale.x;
+        float scale = plane.transform.localScale.x/2;
 
         // Récupération du composant WallGenerator
         WallGenerator generator = GetComponent<WallGenerator>();
 
         // Chemin du fichier JSON
-        string filePath = Path.Combine(Application.dataPath, "Scripts/WallCoordinates.json");
-        // string filePath = Path.Combine(Application.dataPath, "Scripts/labyrinthe_4.json");
+        // string filePath = Path.Combine(Application.dataPath, "Scripts/WallCoordinates.json");
+        string filePath = Path.Combine(Application.dataPath, "Scripts/labyrinthe_3.json");
 
         // Lecture du fichier JSON
         string jsonContent = File.ReadAllText(filePath);
