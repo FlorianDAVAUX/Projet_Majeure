@@ -14,8 +14,8 @@ public class WallInstance : MonoBehaviour
         WallGenerator generator = GetComponent<WallGenerator>();
 
         // Chemin du fichier JSON
-        // string filePath = Path.Combine(Application.dataPath, "Scripts/WallCoordinates.json");
-        string filePath = Path.Combine(Application.dataPath, "Scripts/labyrinthe_3.json");
+        string filePath = Path.Combine(Application.dataPath, "Scripts/WallCoordinates.json");
+        // string filePath = Path.Combine(Application.dataPath, "Scripts/labyrinthe_3.json");
 
         // Lecture du fichier JSON
         string jsonContent = File.ReadAllText(filePath);

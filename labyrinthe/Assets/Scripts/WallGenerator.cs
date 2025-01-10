@@ -8,8 +8,9 @@ public class WallGenerator : MonoBehaviour
     public GameObject wallPrefab;
     public GameObject parentPlane;
     public GameObject roof;
-    public GameObject particlePrefab; 
     public GameObject ball;
+    public GameObject hole;
+    public GameObject particlePrefab; 
     private float duration = 3f; 
     private List<GameObject> walls = new List<GameObject>();
 
@@ -17,10 +18,10 @@ public class WallGenerator : MonoBehaviour
     {
         // On rend le mur de base (prefab) invisible
         Renderer prefabRenderer = wallPrefab.GetComponent<Renderer>();
-        Renderer particleRenderer = particlePrefab.GetComponent<Renderer>();
-        particleRenderer.enabled = false;
         prefabRenderer.enabled = false;
 
+        // ball.SetActive(false);
+        hole.SetActive(false);
         roof.SetActive(false);
     }
 
@@ -56,7 +57,6 @@ public class WallGenerator : MonoBehaviour
 
         walls.Add(wall);
 
-
         // Positionner le mur à la position calculée
         wall.transform.position = position;
         // Aligner le mur avec la direction donnée
@@ -77,61 +77,31 @@ public class WallGenerator : MonoBehaviour
         // Fonction pour générer les particules
         GenerateParticles(start, end, length, rotation);
 
-        // On attend le temps de l'animation avant de rendre le mur visible
-        // StartCoroutine(WaitAndShowRoof(duration));
+        // On attend le temps de l'animation avant de rendre le plafond, la balle et le trou visibles
+        StartCoroutine(WaitAndShow(duration, roof));
+        StartCoroutine(WaitAndShow(duration, hole));
+        // StartCoroutine(WaitAndShow(duration, ball));
 
         // Si la couleur est rouge on fait monter et descendre le mur en boucle
         if (color == "red")
         {
             StartCoroutine(RiseAndFall(wall, 1f, duration));
         }
-
-        ComputeWallDistances();
     }
-
-    public void ComputeWallDistances()
-    {
-        float minDistance = float.MaxValue;
-
-        // On compare les murs deux à deux
-        for (int i = 0; i < walls.Count; i++)
-        {
-            for (int j = i + 1; j < walls.Count; j++)
-            {
-                //On récupère la position des murs
-                Vector3 pos1 = walls[i].transform.position;
-                Vector3 pos2 = walls[j].transform.position;
-
-                // Calcul de la distance entre les deux murs
-                float distance = Vector3.Distance(pos1, pos2);
-
-                // On met à jour la distance minimale
-                if (distance < minDistance)
-                {
-                    minDistance = distance;
-                }
-            }
-        }
-        Debug.Log("Distance :" + minDistance);
-        // Resize avec la distance minimale
-        ball.transform.localScale = new Vector3(minDistance*0.5f, minDistance*0.5f, minDistance*0.5f);
-        // ball.transform.position = new Vector3(5-ball.transform.localScale.x*8, ball.transform.localScale.y, -5+ball.transform.localScale.x*8);
-    }
-    
 
     /////////////////////////////////////////// ANIMATIONS MURS & PLAFOND ///////////////////////////////////////////
 
-    private IEnumerator WaitAndShowRoof(float waitTime)
+    private IEnumerator WaitAndShow(float waitTime, GameObject obj)
     {
         yield return new WaitForSeconds(waitTime);
-        roof.SetActive(true);
+        obj.SetActive(true);
     }
 
     private IEnumerator AnimateWall(GameObject wall, Vector3 targetPosition, float duration)
     {
         // Convertir les positions en espace local
         Vector3 localTargetPosition = parentPlane.transform.InverseTransformPoint(targetPosition);
-        Vector3 localStartPosition = localTargetPosition + new Vector3(0, -10f, 0);
+        Vector3 localStartPosition = localTargetPosition + new Vector3(0, -7f, 0);
 
         float elapsedTime = 0;
         float shakeMagnitude = 0.006f; // Magnitude du tremblement
