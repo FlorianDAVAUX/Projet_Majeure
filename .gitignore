@@ -1,7 +1,7 @@
-/labyrinthe/Library/
-/labyrinthe/Logs/
-/labyrinthe/UserSettings/
-/labyrinthe/Assembly-CSharp-Editor.csproj
-/labyrinthe/Assembly-CSharp.csproj
-/labyrinthe/Temp/
-/labyrinthe/labyrinthe.sln
+# Ignore
+/labyrinthe/*
+
+# Keep
+!/labyrinthe/Assets/
+!/labyrinthe/Packages/
+!/labyrinthe/ProjectSettings/
