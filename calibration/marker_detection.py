@@ -3,7 +3,7 @@ from cv2 import aruco
 import numpy as np
 
 # dictionary to specify type of the marker
-marker_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
+marker_dict = aruco.getPredefinedDictionary(aruco.DICT_6X6_50)
 
 # detect the marker
 param_markers = aruco.DetectorParameters()

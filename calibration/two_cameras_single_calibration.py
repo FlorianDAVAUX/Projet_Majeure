@@ -39,10 +39,10 @@ def configure_system(cameras):
     config = {
 
         # Paramètres Aruco tags
-        "ARUCO_DICT": aruco.getPredefinedDictionary(aruco.DICT_4X4_50),
+        "ARUCO_DICT": aruco.getPredefinedDictionary(aruco.DICT_6X6_50),
         "ARUCO_PARAMETERS": aruco.DetectorParameters(),
-        "ARUCO_SIZE_mm": 41,
-        "ARUCO_SPACING_mm": 14,
+        "ARUCO_SIZE_mm": 29,
+        "ARUCO_SPACING_mm": 10,
 
         # Paramètres intrinsèques webcam
         "sensor_mm": np.array([3.58, 2.685]),
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     # Initialisation des caméras
     cap1, cap2 = initialize_cameras(config)
     # Initialisation des points de calibration
-    calibration_points = initialize_calibration_points(5, 4, 57, 13)
+    calibration_points = initialize_calibration_points(5, 7, config["ARUCO_SIZE_mm"], config["ARUCO_SPACING_mm"])
     # Initialisation du serveur UDP
     sock = setup_udp_server(config)
     print("Configuration terminée.")

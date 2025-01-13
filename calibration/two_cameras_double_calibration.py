@@ -1,6 +1,8 @@
 import numpy as np
 import cv2 as cv
 from cv2 import aruco
+import socket
+import json
 
 ################################################################################
 # Détection des caméras
@@ -55,6 +57,11 @@ def configure_system(cameras):
 
         # Webcam
         "id_cam1": cameras[0],
+        "id_cam2": cameras[1],
+
+        # Serveur
+        "UDP_IP": "127.0.0.1",
+        "UDP_PORT": 5065,
     }
 
     # Calcul du centre et de la matrice intrinsèque de la caméra
@@ -81,12 +88,23 @@ def initialize_cameras(config):
     """
     print('opening camera ', config["id_cam1"])
     cap1 = cv.VideoCapture(config["id_cam1"])
+    print('opening camera ', config["id_cam2"])
+    cap2 = cv.VideoCapture(config["id_cam2"])
 
-    resolution = config["resolution"]    
+    resolution = config["resolution"]
     cap1.set(cv.CAP_PROP_FRAME_WIDTH, resolution[0])
     cap1.set(cv.CAP_PROP_FRAME_HEIGHT, resolution[1])
+    cap2.set(cv.CAP_PROP_FRAME_WIDTH, resolution[0])
+    cap2.set(cv.CAP_PROP_FRAME_HEIGHT, resolution[1])
 
-    return cap1
+    return cap1, cap2
+
+def setup_udp_server(config):
+    """
+    Configure le serveur UDP pour la communication.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    return sock
 
 def initialize_calibration_points(nb_colonnes, nb_lignes, taille_tag, espacement):
     """
@@ -150,6 +168,28 @@ def calibrate_camera(config, calibration_points, corners, ids):
 
     return ret, rvec, tvec
 
+def get_transformation_matrix(r1, t1, r2, t2):
+    """
+    Calcule la matrice de transformation entre deux caméras.
+    """
+    rm1, _ = cv.Rodrigues(r1)
+    rm2, _ = cv.Rodrigues(r2)
+    rm12 = np.dot(rm2, rm1.T)
+    r12, _ = cv.Rodrigues(rm12)
+    t12 = t2 - np.dot(rm12, t1)
+    return r12, t12
+
+
+def compute_camera2_from_camera1(r1, t1, r12, t12):
+    """
+    Calcule les paramètres extrinsèques de la caméra 2 en fonction de la caméra 1.
+    """
+    rm1, _ = cv.Rodrigues(r1)
+    rm12, _ = cv.Rodrigues(r12)
+    r2, _ = cv.Rodrigues(np.dot(rm12, rm1))
+    t2 = np.dot(rm12, t1) + t12
+    return r2, t2
+
 def rtvec_to_matrix(rvec, tvec):
     """
     Convertit les vecteurs de rotation et de translation en matrice de transformation.
@@ -167,137 +207,117 @@ def matrix_to_rtvec(matrix):
     Convertit une matrice de transformation en vecteurs de rotation et de translation.
     """
     rvec, _ = cv.Rodrigues(matrix[:3, :3])
-    tvec = matrix[:3, 3]
+    tvec = matrix[:3, 3].reshape(3, 1)
     return rvec, tvec
 
-def object_points_to_world_points(object_points, rvec_object, tvec_object, rvec_world, tvec_world):
+def object_world_transformation(rvec_object, tvec_object, rvec_world, tvec_world):
     """
-    Convertit les points de l'objet en points du repère monde.
-    
-    Parameters:
-        object_points (dict): Dictionnaire des points dans le repère de l'objet.
-        rvec_object (np.ndarray): Vecteur de rotation du repère de l'objet.
-        tvec_object (np.ndarray): Vecteur de translation du repère de l'objet.
-        rvec_world (np.ndarray): Vecteur de rotation du repère monde.
-        tvec_world (np.ndarray): Vecteur de translation du repère monde.
-    
-    Returns:
-        dict: Points transformés dans le repère monde.
+    Calcule le rvec et vec de changement de repère.
     """
-    world_points = {}
+    r_obj, t_obj = None, None
 
-    # Calcul des matrices extrinsèques
     T_object = rtvec_to_matrix(rvec_object, tvec_object)
     T_world = rtvec_to_matrix(rvec_world, tvec_world)
 
-    # Calcul de la matrice de transformation
-    T_object_to_world = np.linalg.pinv(T_world) @ T_object
+    T_object_to_world = np.dot(T_world, np.linalg.inv(T_object))
 
-    # Passage des points de l'objet au repère monde
-    for id_object, points_object in object_points.items():
-        tag_points = []
-        for point_object in points_object:
-            # Ajout d'une coordonnée homogène
-            point_object = np.append(point_object, 1)
-            # Transformation des points
-            point_world = T_object_to_world @ point_object
-            # Retour à des coordonnées cartésiennes
-            point_world = point_world[:3] / point_world[3]
-            # Ajout du point transformé
-            tag_points.append(point_world)
-        world_points[id_object] = np.array(tag_points, dtype=np.float32)
+    r_obj, t_obj = matrix_to_rtvec(T_object_to_world)
 
-    return world_points
+    return r_obj, t_obj
 
+def display_results(frame, points, rvec, tvec, m_cam, distortion, color=(0, 0, 255)):
+    """
+    Affiche les résultats de la calibration.
+    """
+    img_points, _ = cv.projectPoints(points, rvec, tvec, m_cam, distortion)
+    img_points = img_points.reshape(-1, 2).astype(int)
+
+    for point in img_points:
+        cv.circle(frame, tuple(point), 5, color, -1)
+    
 
 ################################################################################
 # Main Loop
 ################################################################################
 
-def main_loop(cap, config, world_calibration_points, object_calibration_points):
+def calibrate_cameras(cap1, cap2, config, calibration_points):
+    """
+    Effectue la calibration des deux caméras et calcule la matrice de transformation.
+    """
+    calibrated = False
+    r12, t12 = None, None
+
+    while not calibrated and cap1.isOpened() and cap2.isOpened():
+        ret1, frame1 = cap1.read()
+        ret2, frame2 = cap2.read()
+
+        if ret1 and ret2:
+            # Détection des tags ArUco
+            marker_corners1, marker_IDs1 = detect_aruco_tags(frame1, config["ARUCO_DICT_world"], config["ARUCO_PARAMETERS_world"])
+            marker_corners2, marker_IDs2 = detect_aruco_tags(frame2, config["ARUCO_DICT_world"], config["ARUCO_PARAMETERS_world"])
+
+            ret1, r1, t1 = calibrate_camera(config, calibration_points, marker_corners1, marker_IDs1)
+            ret2, r2, t2 = calibrate_camera(config, calibration_points, marker_corners2, marker_IDs2)
+
+            if ret1 and ret2:
+                r12, t12 = get_transformation_matrix(r1, t1, r2, t2)
+                calibrated = True
+
+                # Affichage des résultats
+                for id_world, id_object in zip(marker_IDs1.flatten(), marker_IDs1.flatten()):
+                    # Affichage des points de calibrage
+                    if id_world in config["ARUCO_ID_LIST"]:
+                        display_results(frame1, calibration_points[id_world], r1, t1, config["m_cam"], config["distortion"])
+                        display_results(frame2, calibration_points[id_world], r2, t2, config["m_cam"], config["distortion"])
+
+                        frame3 = frame2
+                        cv.imshow('Computed', frame3)
+
+        if cv.waitKey(1) == 27:
+            break
+
+    return r12, t12
+
+def main_loop(cap1, config, world_calibration_points, object_calibration_points, r12, t12, sock):
     """
     Boucle principale pour capturer les images et envoyer les paramètres via UDP.
     """
-    while cap.isOpened():
-        ret, frame = cap.read()
+    while cap1.isOpened():
+        ret, frame = cap1.read()
         if ret:
 
             # Détection des tags ArUco
             marker_corners_world, marker_IDs_world = detect_aruco_tags(frame, config["ARUCO_DICT_world"], config["ARUCO_PARAMETERS_world"])
             marker_corners_object, marker_IDs_object = detect_aruco_tags(frame, config["ARUCO_DICT_object"], config["ARUCO_PARAMETERS_object"])
 
-            # Affichage des tags
-            for ids, corners in zip(marker_IDs_world, marker_corners_world):
-                cv.polylines(frame, [corners.astype(np.int32)], True, (255,0,0), 4, cv.LINE_AA)
-                corners = corners.reshape(4, 2)
-                corners = corners.astype(int)
-                tag_center = corners.mean(axis=0).astype(int)
-                tag_center[0] -= 20
-                cv.putText(
-                    frame,
-                    f"id: {ids[0]}",
-                    tuple(tag_center),
-                    cv.FONT_HERSHEY_PLAIN,
-                    1.3,
-                    (200, 100, 0),
-                    2,
-                    cv.LINE_AA,
-                )
+            # Calibration des caméras
+            ret1_world, rvec1_world, tvec1_world = calibrate_camera(config, world_calibration_points, marker_corners_world, marker_IDs_world)
+            ret1_object, rvec1_object, tvec1_object = calibrate_camera(config, object_calibration_points, marker_corners_object, marker_IDs_object)
             
-            for ids, corners in zip(marker_IDs_object, marker_corners_object):
-                cv.polylines(frame, [corners.astype(np.int32)], True, (0,255,255), 4, cv.LINE_AA)
-                corners = corners.reshape(4, 2)
-                corners = corners.astype(int)
-                tag_center = corners.mean(axis=0).astype(int)
-                tag_center[0] -= 20
-                cv.putText(
-                    frame,
-                    f"id: {ids[0]}",
-                    tuple(tag_center),
-                    cv.FONT_HERSHEY_PLAIN,
-                    1.3,
-                    (200, 100, 0),
-                    2,
-                    cv.LINE_AA,
-                )
+            if ret1_world and ret1_object:
 
-            # Calibrage de la caméra
-            ret_world, rvec_world, tvec_world = calibrate_camera(config, world_calibration_points, marker_corners_world, marker_IDs_world)
-            ret_object, rvec_object, tvec_object = calibrate_camera(config, object_calibration_points, marker_corners_object, marker_IDs_object)
+                r_obj, t_obj = object_world_transformation(rvec1_object, tvec1_object, rvec1_world, tvec1_world)
 
-            if ret_world and ret_object:
-                object_world_points = object_points_to_world_points(object_calibration_points, rvec_object, tvec_object, rvec_world, tvec_world)
+                r2, t2 = compute_camera2_from_camera1(rvec1_world, tvec1_world, r12, t12)
+                rm, _ = cv.Rodrigues(r2)
 
-                print(f"\n Points de calibration monde : \n {world_calibration_points}")
-                print("\n\n\n")
-                print(f"\n Points de calibration objet : \n {object_calibration_points}")
-                print("\n\n\n")
-                print(f"\n Points de calibration objet dans le repère monde : \n {object_world_points}")
+                # Construction du message JSON
+                message = json.dumps({
+                    'C': config["id_cam2"],
+                    'M': config["m_cam"].reshape(-1).tolist(),
+                    'R': r2.T.tolist()[0],
+                    'T': t2.T.tolist()[0],
+                    'F': rm[:, 2].tolist(),
+                    'U': rm[:, 1].T.tolist(),
+                    'R_obj': r_obj.T.tolist()[0],
+                    'T_obj': t_obj.T.tolist()[0],
+                })
+                sock.sendto(message.encode(), (config["UDP_IP"], config["UDP_PORT"]))
 
+            cv.imshow('Camera 1', frame)
 
-                # Affichage des points de calibrage sur l'image en les projetant
-                for id_world, id_object in zip(marker_IDs_world.flatten(), marker_IDs_object.flatten()):
-
-                    # Affichage des points de calibrage
-                    if id_world in config["ARUCO_ID_LIST"]:
-                        projected_world, _ = cv.projectPoints(world_calibration_points[id_world], rvec_world, tvec_world, config["m_cam"], config["distortion"])
-                        for point_world in projected_world:
-                            cv.circle(frame, tuple(point_world.ravel().astype(int)), 5, (0, 0, 255), -1)
-                    if id_object in config["ARUCO_ID_LIST"]:
-                        projected_object, _ = cv.projectPoints(object_calibration_points[id_object], rvec_object, tvec_object, config["m_cam"], config["distortion"])
-                        projected_object_world, _ = cv.projectPoints(object_world_points[id_object], rvec_world, tvec_world, config["m_cam"], config["distortion"])
-                        for point_object, point_object_world in zip(projected_object, projected_object_world):
-                            cv.circle(frame, tuple(point_object.ravel().astype(int)), 5, (255, 0, 0), -1)
-                            cv.circle(frame, tuple(point_object_world.ravel().astype(int)), 2, (0, 255, 0), -1)
-
-            # Affichage du flux vidéo
-            cv.imshow("frame", frame)
-        
-        # Exit on 'q' key press
-        if cv.waitKey(1) & 0xFF == ord('q'):
+        if cv.waitKey(1) == 27:
             break
-
-    cv.destroyAllWindows()
 
 
 ################################################################################
@@ -313,15 +333,19 @@ if __name__ == "__main__":
     # Configuration du système
     config = configure_system(cameras)
     # Initialisation des caméras
-    cap = initialize_cameras(config)
+    cap1, cap2 = initialize_cameras(config)
     # Initialisation des points de calibration
     world_calibration_points = initialize_calibration_points(5, 7, config["ARUCO_SIZE_mm_world"], config["ARUCO_SPACING_mm_world"])
     object_calibration_points = initialize_calibration_points(5, 7, config["ARUCO_SIZE_mm_object"], config["ARUCO_SPACING_mm_object"])
+    # Initialisation du serveur UDP
+    sock = setup_udp_server(config)
     print("Configuration terminée.")
 
     # Boucle principale
     try:
-        main_loop(cap, config, world_calibration_points, object_calibration_points)
+        r12, t12 = calibrate_cameras(cap1, cap2, config, world_calibration_points)
+        cap2.release()
+        main_loop(cap1, config, world_calibration_points, object_calibration_points, r12, t12, sock)
     finally:
-        cap.release()
+        cap1.release()
         cv.destroyAllWindows()
