@@ -116,14 +116,14 @@ def initialize_calibration_points(nb_colonnes, nb_lignes, taille_tag, espacement
         for colonne in range(nb_colonnes):
             # Coordonnées globales du centre du tag
             x = colonne * (taille_tag + espacement)
-            y = ligne * (taille_tag + espacement)
-            z = 0  # Plan XY (z=0)
+            z = ligne * (taille_tag + espacement)
+            y = 0  # Plan XZ (y=0)
             
             # Coordonnées des 4 coins dans le repère monde
             coin_hg = np.array([x, y, z])
             coin_hd = np.array([x + taille_tag, y, z])
-            coin_bd = np.array([x + taille_tag, y + taille_tag, z])
-            coin_bg = np.array([x, y + taille_tag, z])
+            coin_bd = np.array([x + taille_tag, y, z + taille_tag])
+            coin_bg = np.array([x, y, z + taille_tag])
             
             positions[id_tag] = np.array([coin_hg, coin_hd, coin_bd, coin_bg], dtype=np.float32)
             id_tag += 1
@@ -218,12 +218,45 @@ def object_world_transformation(rvec_object, tvec_object, rvec_world, tvec_world
 
     T_object = rtvec_to_matrix(rvec_object, tvec_object)
     T_world = rtvec_to_matrix(rvec_world, tvec_world)
-
-    T_object_to_world = np.dot(T_world, np.linalg.inv(T_object))
-
+    T_object_to_world = np.linalg.pinv(T_world) @ T_object
     r_obj, t_obj = matrix_to_rtvec(T_object_to_world)
 
     return r_obj, t_obj
+
+def object_points_to_world_points(object_points, rvec_object, tvec_object, rvec_world, tvec_world):
+    """
+    Convertit les points de l'objet en points du repère monde.
+    
+    Parameters:
+        object_points (dict): Dictionnaire des points dans le repère de l'objet.
+        rvec_object (np.ndarray): Vecteur de rotation du repère de l'objet.
+        tvec_object (np.ndarray): Vecteur de translation du repère de l'objet.
+        rvec_world (np.ndarray): Vecteur de rotation du repère monde.
+        tvec_world (np.ndarray): Vecteur de translation du repère monde.
+    
+    Returns:
+        dict: Points transformés dans le repère monde.
+    """
+    world_points = {}
+
+    # Calcul de la matrice de transformation
+    T_object_to_world = rtvec_to_matrix(*object_world_transformation(rvec_object, tvec_object, rvec_world, tvec_world))
+
+    # Passage des points de l'objet au repère monde
+    for id_object, points_object in object_points.items():
+        tag_points = []
+        for point_object in points_object:
+            # Ajout d'une coordonnée homogène
+            point_object = np.append(point_object, 1)
+            # Transformation des points
+            point_world = T_object_to_world @ point_object
+            # Retour à des coordonnées cartésiennes
+            point_world = point_world[:3] / point_world[3]
+            # Ajout du point transformé
+            tag_points.append(point_world)
+        world_points[id_object] = np.array(tag_points, dtype=np.float32)
+
+    return world_points
 
 def display_results(frame, points, rvec, tvec, m_cam, distortion, color=(0, 0, 255)):
     """
@@ -264,11 +297,11 @@ def calibrate_cameras(cap1, cap2, config, calibration_points):
                 calibrated = True
 
                 # Affichage des résultats
-                for id_world, id_object in zip(marker_IDs1.flatten(), marker_IDs1.flatten()):
+                for id in marker_IDs1.flatten():
                     # Affichage des points de calibrage
-                    if id_world in config["ARUCO_ID_LIST"]:
-                        display_results(frame1, calibration_points[id_world], r1, t1, config["m_cam"], config["distortion"])
-                        display_results(frame2, calibration_points[id_world], r2, t2, config["m_cam"], config["distortion"])
+                    if id in config["ARUCO_ID_LIST"]:
+                        display_results(frame1, calibration_points[id], r1, t1, config["m_cam"], config["distortion"])
+                        display_results(frame2, calibration_points[id], r2, t2, config["m_cam"], config["distortion"])
 
                         frame3 = frame2
                         cv.imshow('Computed', frame3)
@@ -298,6 +331,23 @@ def main_loop(cap1, config, world_calibration_points, object_calibration_points,
 
                 r_obj, t_obj = object_world_transformation(rvec1_object, tvec1_object, rvec1_world, tvec1_world)
 
+                # Calcul des positions des points de la mire objet dans le repère monde
+                world_object_points = object_points_to_world_points(object_calibration_points, rvec1_object, tvec1_object, rvec1_world, tvec1_world)
+                # On ne garde que les coins de la mire objet
+                corners = []
+                ids = [0, 4, 30, 34]
+                for id in ids:
+                    if id == 0:
+                        corners.append(world_object_points[id][0])
+                    elif id == 4:
+                        corners.append(world_object_points[id][1])
+                    elif id == 30:
+                        corners.append(world_object_points[id][3])
+                    elif id == 34:
+                        corners.append(world_object_points[id][2])
+                corners = np.array(corners, dtype=np.float32)
+
+                # Calcul des paramètres extrinsèques de la caméra 2
                 r2, t2 = compute_camera2_from_camera1(rvec1_world, tvec1_world, r12, t12)
                 rm, _ = cv.Rodrigues(r2)
 
@@ -311,6 +361,7 @@ def main_loop(cap1, config, world_calibration_points, object_calibration_points,
                     'U': rm[:, 1].T.tolist(),
                     'R_obj': r_obj.T.tolist()[0],
                     'T_obj': t_obj.T.tolist()[0],
+                    'Corners': corners.T.tolist(),
                 })
                 sock.sendto(message.encode(), (config["UDP_IP"], config["UDP_PORT"]))
 

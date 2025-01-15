@@ -192,6 +192,7 @@ def object_points_to_world_points(object_points, rvec_object, tvec_object, rvec_
 
     # Calcul de la matrice de transformation
     T_object_to_world = np.linalg.pinv(T_world) @ T_object
+    print(f"\n Matrice de transformation : \n {T_object_to_world}")
 
     # Passage des points de l'objet au repère monde
     for id_object, points_object in object_points.items():
