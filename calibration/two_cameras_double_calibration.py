@@ -361,7 +361,7 @@ def main_loop(cap1, config, world_calibration_points, object_calibration_points,
                     'U': rm[:, 1].T.tolist(),
                     'R_obj': r_obj.T.tolist()[0],
                     'T_obj': t_obj.T.tolist()[0],
-                    'Corners': corners.T.tolist(),
+                    'Corners': corners.tolist(),
                 })
                 sock.sendto(message.encode(), (config["UDP_IP"], config["UDP_PORT"]))
 
